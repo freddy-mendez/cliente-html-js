@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capacitaciones - Supabase</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 20px auto;
+      padding: 0 15px;
+      background: #f5f5f5;
+    }
+    h1 { color: #333; }
+    #loading { color: #0066cc; font-weight: bold; }
+    #error { color: #cc0000; font-weight: bold; }
+    #resultado {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 15px;
+      margin-top: 20px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 15px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+    .card h3 { margin: 0 0 10px; color: #0066cc; }
+    .card p { margin: 5px 0; color: #555; font-size: 14px; }
+    pre {
+      background: #fff;
+      padding: 15px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 13px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    }
+  </style>
+</head>
+<body>
+  <h1>Listado de Capacitaciones</h1>
+  <div id="loading">Cargando...</div>
+  <div id="error"></div>
+  <div id="resultado"></div>
+  <pre id="raw" style="display:none"></pre>
+
+  <script>
+    const API_URL = "https://mlcalkjowitvggtgvueu.supabase.co/rest/v1/capacitaciones?select=*";
+    const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sY2Fsa2pvd2l0dmdndGd2dWV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjQ0NzIsImV4cCI6MjEwNzA0MDQ3Mn0.4V87l2GUaiDkbFcQuA6SZwRhgDV7V29tsPJvrE-v0A8";
+
+    async function obtenerCapacitaciones() {
+      const loadingEl = document.getElementById("loading");
+      const errorEl = document.getElementById("error");
+      const resultadoEl = document.getElementById("resultado");
+      const rawEl = document.getElementById("raw");
+
+      try {
+        const respuesta = await fetch(API_URL, {
+          method: "GET",
+          headers: {
+            "apikey": API_KEY,
+            "Authorization": `Bearer ${API_KEY}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          }
+        });
+
+        if (!respuesta.ok) {
+          throw new Error(`Error HTTP ${respuesta.status}: ${respuesta.statusText}`);
+        }
+
+        const datos = await respuesta.json();
+        loadingEl.style.display = "none";
+
+        // Mostrar JSON crudo
+        rawEl.textContent = JSON.stringify(datos, null, 2);
+        rawEl.style.display = "block";
+
+        // Renderizar tarjetas
+        if (Array.isArray(datos) && datos.length > 0) {
+          resultadoEl.innerHTML = datos.map(item => `
+            <div class="card">
+              <h3>${item.titulo || item.nombre || 'Capacitación'}</h3>
+              ${item.descripcion ? `<p>${item.descripcion}</p>` : ''}
+              ${item.fecha ? `<p><strong>Fecha:</strong> ${item.fecha}</p>` : ''}
+              ${item.id ? `<p><strong>ID:</strong> ${item.id}</p>` : ''}
+            </div>
+          `).join("");
+        } else {
+          resultadoEl.innerHTML = "<p>No hay capacitaciones registradas.</p>";
+        }
+
+      } catch (error) {
+        loadingEl.style.display = "none";
+        errorEl.textContent = "⚠️ Error al consumir la API: " + error.message;
+        console.error(error);
+      }
+    }
+
+    // Ejecutar la función asíncrona al cargar la página
+    obtenerCapacitaciones();
+  </script>
+</body>
+</html>
