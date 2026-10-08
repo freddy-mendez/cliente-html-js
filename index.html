@@ -14,7 +14,7 @@
     }
     h1 { color: #333; }
     #loading { color: #0066cc; font-weight: bold; }
-    #error { color: #cc0000; font-weight: bold; }
+    #error, .modal-error { color: #cc0000; font-weight: bold; }
     #resultado {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -29,6 +29,29 @@
     }
     .card h3 { margin: 0 0 10px; color: #0066cc; }
     .card p { margin: 5px 0; color: #555; font-size: 14px; }
+    button {
+      padding: 8px 12px;
+      margin: 8px 6px 0 0;
+      border: 0;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .primary { background: #0066cc; color: #fff; }
+    .danger { background: #cc0000; color: #fff; }
+    dialog {
+      width: min(400px, calc(100% - 40px));
+      border: 0;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+    }
+    dialog::backdrop { background: rgba(0,0,0,0.45); }
+    dialog label { display: block; margin: 12px 0 5px; }
+    dialog input, dialog textarea {
+      box-sizing: border-box;
+      width: 100%;
+      padding: 8px;
+    }
     pre {
       background: #fff;
       padding: 15px;
@@ -41,65 +64,169 @@
 </head>
 <body>
   <h1>Listado de Capacitaciones</h1>
+  <button id="agregar" class="primary" type="button">Agregar capacitación</button>
   <div id="loading">Cargando...</div>
-  <div id="error"></div>
+  <div id="error" role="alert"></div>
   <div id="resultado"></div>
   <pre id="raw" style="display:none"></pre>
 
+  <dialog id="modalFormulario">
+    <form id="formulario">
+      <h2 id="tituloModal">Agregar capacitación</h2>
+      <input id="id" type="hidden">
+      <label for="titulo">Título</label>
+      <input id="titulo" required>
+      <label for="descripcion">Descripción</label>
+      <textarea id="descripcion" rows="3"></textarea>
+      <div id="errorFormulario" class="modal-error" role="alert"></div>
+      <button class="primary" type="submit">Guardar</button>
+      <button id="cancelarFormulario" type="button">Cancelar</button>
+    </form>
+  </dialog>
+
+  <dialog id="modalEliminar">
+    <p>¿Está seguro de que desea eliminar esta capacitación?</p>
+    <div id="errorEliminar" class="modal-error" role="alert"></div>
+    <button id="confirmarEliminar" class="danger" type="button">Sí, eliminar</button>
+    <button id="cancelarEliminar" type="button">Cancelar</button>
+  </dialog>
+
   <script>
-    const API_URL = "https://mlcalkjowitvggtgvueu.supabase.co/rest/v1/capacitaciones?select=*";
+    const API_URL = "https://mlcalkjowitvggtgvueu.supabase.co/rest/v1/capacitaciones";
     const API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1sY2Fsa2pvd2l0dmdndGd2dWV1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE0NjQ0NzIsImV4cCI6MjEwNzA0MDQ3Mn0.4V87l2GUaiDkbFcQuA6SZwRhgDV7V29tsPJvrE-v0A8";
+    const headers = {
+      apikey: API_KEY,
+      Authorization: `Bearer ${API_KEY}`,
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    };
+    const formulario = document.getElementById("formulario");
+    const modalFormulario = document.getElementById("modalFormulario");
+    const modalEliminar = document.getElementById("modalEliminar");
+    let capacitaciones = [];
+    let campoTitulo = "titulo";
+    let idEliminar = null;
+
+    async function solicitar(url, opciones = {}) {
+      const respuesta = await fetch(url, {
+        ...opciones,
+        headers: { ...headers, ...opciones.headers }
+      });
+      if (!respuesta.ok) {
+        throw new Error(`Error HTTP ${respuesta.status}: ${respuesta.statusText}`);
+      }
+      return respuesta.status === 204 ? null : respuesta.json();
+    }
+
+    function mostrarCapacitaciones() {
+      const resultado = document.getElementById("resultado");
+      resultado.replaceChildren();
+      if (!capacitaciones.length) {
+        resultado.textContent = "No hay capacitaciones registradas.";
+        return;
+      }
+
+      capacitaciones.forEach(item => {
+        const tarjeta = document.createElement("div");
+        tarjeta.className = "card";
+        const titulo = document.createElement("h3");
+        titulo.textContent = item.titulo || item.nombre || "Capacitación";
+        tarjeta.appendChild(titulo);
+
+        if (item.descripcion) {
+          const descripcion = document.createElement("p");
+          descripcion.textContent = item.descripcion;
+          tarjeta.appendChild(descripcion);
+        }
+        if (item.id) {
+          const id = document.createElement("p");
+          id.textContent = `ID: ${item.id}`;
+          tarjeta.appendChild(id);
+        }
+
+        const editar = document.createElement("button");
+        editar.textContent = "Editar";
+        editar.addEventListener("click", () => abrirFormulario(item));
+        tarjeta.appendChild(editar);
+
+        const eliminar = document.createElement("button");
+        eliminar.className = "danger";
+        eliminar.textContent = "Eliminar";
+        eliminar.addEventListener("click", () => {
+          idEliminar = item.id;
+          document.getElementById("errorEliminar").textContent = "";
+          modalEliminar.showModal();
+        });
+        tarjeta.appendChild(eliminar);
+        resultado.appendChild(tarjeta);
+      });
+    }
 
     async function obtenerCapacitaciones() {
-      const loadingEl = document.getElementById("loading");
-      const errorEl = document.getElementById("error");
-      const resultadoEl = document.getElementById("resultado");
-      const rawEl = document.getElementById("raw");
-
+      document.getElementById("loading").style.display = "block";
+      document.getElementById("error").textContent = "";
       try {
-        const respuesta = await fetch(API_URL, {
-          method: "GET",
-          headers: {
-            "apikey": API_KEY,
-            "Authorization": `Bearer ${API_KEY}`,
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-          }
-        });
-
-        if (!respuesta.ok) {
-          throw new Error(`Error HTTP ${respuesta.status}: ${respuesta.statusText}`);
-        }
-
-        const datos = await respuesta.json();
-        loadingEl.style.display = "none";
-
-        // Mostrar JSON crudo
-        rawEl.textContent = JSON.stringify(datos, null, 2);
-        rawEl.style.display = "block";
-
-        // Renderizar tarjetas
-        if (Array.isArray(datos) && datos.length > 0) {
-          resultadoEl.innerHTML = datos.map(item => `
-            <div class="card">
-              <h3>${item.titulo || item.nombre || 'Capacitación'}</h3>
-              ${item.descripcion ? `<p>${item.descripcion}</p>` : ''}
-              ${item.fecha ? `<p><strong>Fecha:</strong> ${item.fecha}</p>` : ''}
-              ${item.id ? `<p><strong>ID:</strong> ${item.id}</p>` : ''}
-            </div>
-          `).join("");
-        } else {
-          resultadoEl.innerHTML = "<p>No hay capacitaciones registradas.</p>";
-        }
-
+        capacitaciones = await solicitar(`${API_URL}?select=*`);
+        campoTitulo = capacitaciones.some(item => "titulo" in item) ? "titulo" :
+          capacitaciones.some(item => "nombre" in item) ? "nombre" : "titulo";
+        document.getElementById("raw").textContent = JSON.stringify(capacitaciones, null, 2);
+        document.getElementById("raw").style.display = "block";
+        mostrarCapacitaciones();
       } catch (error) {
-        loadingEl.style.display = "none";
-        errorEl.textContent = "⚠️ Error al consumir la API: " + error.message;
+        document.getElementById("error").textContent = "Error al cargar: " + error.message;
         console.error(error);
+      } finally {
+        document.getElementById("loading").style.display = "none";
       }
     }
 
-    // Ejecutar la función asíncrona al cargar la página
+    function abrirFormulario(item = null) {
+      formulario.reset();
+      document.getElementById("errorFormulario").textContent = "";
+      document.getElementById("id").value = item ? item.id : "";
+      document.getElementById("titulo").value = item ? (item.titulo || item.nombre || "") : "";
+      document.getElementById("descripcion").value = item ? (item.descripcion || "") : "";
+      document.getElementById("tituloModal").textContent = item
+        ? "Editar capacitación"
+        : "Agregar capacitación";
+      modalFormulario.showModal();
+    }
+
+    formulario.addEventListener("submit", async event => {
+      event.preventDefault();
+      const id = document.getElementById("id").value;
+      const datos = {
+        [campoTitulo]: document.getElementById("titulo").value.trim(),
+        descripcion: document.getElementById("descripcion").value.trim()
+      };
+      try {
+        await solicitar(id ? `${API_URL}?id=eq.${encodeURIComponent(id)}` : API_URL, {
+          method: id ? "PATCH" : "POST",
+          headers: { Prefer: "return=representation" },
+          body: JSON.stringify(datos)
+        });
+        modalFormulario.close();
+        await obtenerCapacitaciones();
+      } catch (error) {
+        document.getElementById("errorFormulario").textContent = "No se pudo guardar: " + error.message;
+      }
+    });
+
+    document.getElementById("confirmarEliminar").addEventListener("click", async () => {
+      try {
+        await solicitar(`${API_URL}?id=eq.${encodeURIComponent(idEliminar)}`, {
+          method: "DELETE"
+        });
+        modalEliminar.close();
+        await obtenerCapacitaciones();
+      } catch (error) {
+        document.getElementById("errorEliminar").textContent = "No se pudo eliminar: " + error.message;
+      }
+    });
+
+    document.getElementById("agregar").addEventListener("click", () => abrirFormulario());
+    document.getElementById("cancelarFormulario").addEventListener("click", () => modalFormulario.close());
+    document.getElementById("cancelarEliminar").addEventListener("click", () => modalEliminar.close());
     obtenerCapacitaciones();
   </script>
 </body>
